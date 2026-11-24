@@ -1,0 +1,64 @@
+[project]
+name = "agent-ia-langgraph"
+version = "0.1.0"
+description = "A learning project to rebuild an AI agent with LangGraph and compare it with a framework-free version"
+readme = "README.md"
+authors = [
+    { name = "azeupaul", email = "azeupaul@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "langchain-google-genai>=4.5.2",
+    "langgraph>=1.2.24",
+    "pydantic>=2.14.4",
+    "python-dotenv>=1.2.4",
+]
+
+[project.scripts]
+agent-ia-langgraph = "agent_ia_langgraph:main"
+
+[build-system]
+requires = ["uv_build>=0.9.26,<0.10.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "mypy>=2.4.1",
+    "pre-commit>=4.7.0",
+    "pytest>=9.2.0",
+    "ruff>=0.17.6",
+]
+
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort (import order)
+    "N",    # pep8-naming
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "SIM",  # flake8-simplify
+    "RUF",  # ruff-specific rules
+    "D",    # pydocstyle
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["D"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unreachable = true
+
+
+[tool.pytest]
+testpaths = ["tests"]
