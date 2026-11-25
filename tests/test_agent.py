@@ -41,3 +41,18 @@ def test_the_system_prompt_comes_first_and_only_once_on_every_turn() -> None:
         ("ai", "Hello."),
         ("human", "What is my name?"),
     ]
+
+
+def test_history_lists_the_conversation_without_the_system_prompt() -> None:
+    model = RecordingChatModel(messages=iter(["Hello.", "Ada."]))
+    agent = Agent(model, system_prompt="Answer briefly.")
+
+    agent.chat("My name is Ada.")
+    agent.chat("What is my name?")
+
+    assert [(message.type, message.text) for message in agent.history] == [
+        ("human", "My name is Ada."),
+        ("ai", "Hello."),
+        ("human", "What is my name?"),
+        ("ai", "Ada."),
+    ]

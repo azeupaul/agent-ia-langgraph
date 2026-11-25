@@ -73,3 +73,14 @@ class Agent:
         reply: BaseMessage = result["messages"][-1]
 
         return reply.text
+
+    @property
+    def history(self) -> list[BaseMessage]:
+        """The conversation so far, oldest message first.
+
+        The system prompt is not part of it: it is sent to the model on every
+        call but never stored.
+        """
+        snapshot = self._graph.get_state(self._config)
+
+        return list(snapshot.values.get("messages", []))
