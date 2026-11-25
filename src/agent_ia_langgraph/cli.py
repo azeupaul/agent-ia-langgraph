@@ -1,6 +1,7 @@
 """Terminal chat with the agent."""
 
 import os
+from collections.abc import Callable
 
 from dotenv import load_dotenv
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -9,6 +10,16 @@ from agent_ia_langgraph.agent import DEFAULT_SYSTEM_PROMPT, Agent
 
 EXIT_COMMANDS = {"/quit", "/exit"}
 DEFAULT_MODEL = "gemini-3.5-flash-lite"
+MAX_DISPLAY_LENGTH = 80
+
+
+def shorten(text: str, max_length: int = MAX_DISPLAY_LENGTH) -> str:
+    """Return the text on one line, cut with "…" if it is longer than max_length."""
+    text = " ".join(text.split())
+    if len(text) > max_length:
+        text = text[: max_length - 1] + "…"
+
+    return text
 
 
 class ChatCli:
@@ -25,6 +36,10 @@ class ChatCli:
             agent: The agent that answers, already configured.
         """
         self._agent = agent
+        self._commands: dict[str, Callable[[], None]] = {
+            "/history": self._show_history,
+            "/reset": self._reset,
+        }
 
     def run(self) -> None:
         """Chat until the user leaves.
@@ -36,6 +51,8 @@ class ChatCli:
         """
         print("Welcome to your agent with LangGraph!")
         print("Available Commands:")
+        print(" - /history to view the conversation history")
+        print(" - /reset to start a new conversation")
         print(" - /quit or /exit to end the session")
         print("Type your message and press Enter to send it.\n")
 
@@ -52,6 +69,11 @@ class ChatCli:
             if user_input.lower() in EXIT_COMMANDS:
                 break
 
+            command = self._commands.get(user_input.lower())
+            if command is not None:
+                command()
+                continue
+
             try:
                 reply = self._agent.chat(user_input)
             except KeyboardInterrupt:
@@ -64,6 +86,27 @@ class ChatCli:
             print(f"AI: {reply}\n")
 
         print("Goodbye!")
+
+    def _reset(self) -> None:
+        """Start a new conversation.
+
+        The previous one is not deleted: it stays in the agent's checkpointer.
+        """
+        self._agent.reset()
+        print("[conversation reset]")
+
+    def _show_history(self) -> None:
+        """Display the entire conversation, with the oldest messages first.
+
+        The system prompt is not displayed, and long messages are truncated.
+        """
+        messages = self._agent.history
+        if not messages:
+            print("[no conversation history]")
+            return
+
+        for message in messages:
+            print(f"[{message.type}] {shorten(message.text)}")
 
 
 def main() -> None:
