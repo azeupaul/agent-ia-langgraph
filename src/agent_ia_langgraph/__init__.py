@@ -1,6 +1,1 @@
-"""Main application."""
-
-
-def main() -> None:
-    """Print a simple message."""
-    print("Hello from agent-ia-langgraph!")
+"""Rebuild of a framework-free AI agent with LangGraph."""

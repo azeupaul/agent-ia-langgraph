@@ -13,6 +13,11 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, START, MessagesState, StateGraph
 
+DEFAULT_SYSTEM_PROMPT = (
+    "You are an assistant that helps users solve problems.\n"
+    "Always reply in the language of the user's latest message."
+)
+
 
 class Agent:
     """Chat agent that remembers the conversation.
