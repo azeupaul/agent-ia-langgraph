@@ -25,3 +25,19 @@ def test_the_model_receives_the_whole_conversation_on_the_next_turn() -> None:
         ("ai", "Nice to meet you, Ada."),
         ("human", "What is my name?"),
     ]
+
+
+def test_the_system_prompt_comes_first_and_only_once_on_every_turn() -> None:
+    model = RecordingChatModel(messages=iter(["Hello.", "Ada."]))
+    agent = Agent(model, system_prompt="Answer briefly.")
+
+    agent.chat("My name is Ada.")
+    agent.chat("What is my name?")
+
+    second_call = model.received[1]
+    assert [(message.type, message.text) for message in second_call] == [
+        ("system", "Answer briefly."),
+        ("human", "My name is Ada."),
+        ("ai", "Hello."),
+        ("human", "What is my name?"),
+    ]

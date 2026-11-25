@@ -3,7 +3,7 @@
 from uuid import uuid4
 
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import BaseMessage, HumanMessage
+from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, START, MessagesState, StateGraph
@@ -17,13 +17,18 @@ class Agent:
     next turn sends the whole conversation to the model again.
     """
 
-    def __init__(self, model: BaseChatModel) -> None:
+    def __init__(
+        self, model: BaseChatModel, *, system_prompt: str | None = None
+    ) -> None:
         """Create an agent with an empty conversation.
 
         Args:
             model: The chat model that answers, such as `ChatGoogleGenerativeAI`.
+            system_prompt: Instructions sent before the conversation on every model
+                call. They are not stored in the conversation. None sends none.
         """
         self._model = model
+        self._system_prompt = system_prompt
         self._config: RunnableConfig = {"configurable": {"thread_id": str(uuid4())}}
 
         graph_builder = StateGraph(MessagesState)
@@ -42,7 +47,12 @@ class Agent:
             The update to merge into the state: the model's reply, which the
             `add_messages` reducer appends to the conversation.
         """
-        response = self._model.invoke(state["messages"])
+        messages = state["messages"]
+        if self._system_prompt is not None:
+            messages = [SystemMessage(content=self._system_prompt), *messages]
+
+        response = self._model.invoke(messages)
+
         return {"messages": [response]}
 
     def chat(self, user_prompt: str) -> str:
