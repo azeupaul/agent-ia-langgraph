@@ -10,3 +10,18 @@ def test_chat_returns_the_text_of_the_reply() -> None:
     agent = Agent(RecordingChatModel(messages=iter([reply])))
 
     assert agent.chat("Hi") == "Hello! How can I help?"
+
+
+def test_the_model_receives_the_whole_conversation_on_the_next_turn() -> None:
+    model = RecordingChatModel(messages=iter(["Nice to meet you, Ada.", "Ada."]))
+    agent = Agent(model)
+
+    agent.chat("My name is Ada.")
+    agent.chat("What is my name?")
+
+    second_call = model.received[1]
+    assert [(message.type, message.text) for message in second_call] == [
+        ("human", "My name is Ada."),
+        ("ai", "Nice to meet you, Ada."),
+        ("human", "What is my name?"),
+    ]
