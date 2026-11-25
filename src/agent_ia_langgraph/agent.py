@@ -3,7 +3,12 @@
 from uuid import uuid4
 
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
+from langchain_core.messages import (
+    BaseMessage,
+    HumanMessage,
+    RemoveMessage,
+    SystemMessage,
+)
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, START, MessagesState, StateGraph
@@ -58,17 +63,28 @@ class Agent:
     def chat(self, user_prompt: str) -> str:
         """Send a user message and return the model's reply.
 
-        The message and the reply are added to the conversation.
+        The message and the reply are added to the conversation,
+        only if the turn succeeds.
 
         Args:
             user_prompt: What the user typed.
 
         Returns:
             The text of the reply, without its other content blocks.
+
+        Raises:
+            BaseException: Any error from the model, or an interruption such as
+                Ctrl+C, is raised again once the turn is cancelled: the
+                conversation is left as it was.
         """
-        result = self._graph.invoke(
-            {"messages": [HumanMessage(user_prompt)]}, self._config
-        )
+        message_id = str(uuid4())
+        try:
+            result = self._graph.invoke(
+                {"messages": [HumanMessage(user_prompt, id=message_id)]}, self._config
+            )
+        except BaseException:
+            self._cancel(message_id)
+            raise
 
         reply: BaseMessage = result["messages"][-1]
 
@@ -92,3 +108,16 @@ class Agent:
         deleted: it stays in the checkpointer, but the agent no longer reads it.
         """
         self._config: RunnableConfig = {"configurable": {"thread_id": str(uuid4())}}
+
+    def _cancel(self, message_id: str) -> None:
+        """Remove the user message of a failed turn from the conversation.
+
+        LangGraph saves the input in a checkpoint before running the node, so a
+        failed turn would leave the user message behind. The removal goes
+        through the `add_messages` reducer. Nothing is removed if the message
+        was never saved, since removing an unknown id raises an error.
+        """
+        if any(message_id == message.id for message in self.history):
+            self._graph.update_state(
+                self._config, {"messages": [RemoveMessage(id=message_id)]}
+            )

@@ -1,3 +1,4 @@
+import pytest
 from langchain_core.messages import AIMessage
 
 from agent_ia_langgraph.agent import Agent
@@ -69,4 +70,19 @@ def test_reset_starts_a_new_conversation() -> None:
     agent.chat("What is my name?")
     assert [(message.type, message.text) for message in model.received[-1]] == [
         ("human", "What is my name?"),
+    ]
+
+
+def test_a_failed_turn_leaves_the_conversation_unchanged() -> None:
+    model = RecordingChatModel(messages=iter(["Hello."]))
+    agent = Agent(model)
+    agent.chat("My name is Ada.")
+    model.failure = RuntimeError("API unavailable")
+
+    with pytest.raises(RuntimeError, match="API unavailable"):
+        agent.chat("What is my name?")
+
+    assert [(message.type, message.text) for message in agent.history] == [
+        ("human", "My name is Ada."),
+        ("ai", "Hello."),
     ]
