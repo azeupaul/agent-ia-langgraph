@@ -86,3 +86,19 @@ def test_a_failed_turn_leaves_the_conversation_unchanged() -> None:
         ("human", "My name is Ada."),
         ("ai", "Hello."),
     ]
+
+
+def test_an_interrupted_turn_leaves_the_conversation_unchanged() -> None:
+    # Ctrl+C raises KeyboardInterrupt, which is not an Exception.
+    model = RecordingChatModel(messages=iter(["Hello."]))
+    agent = Agent(model)
+    agent.chat("My name is Ada.")
+    model.failure = KeyboardInterrupt()
+
+    with pytest.raises(KeyboardInterrupt):
+        agent.chat("What is my name?")
+
+    assert [(message.type, message.text) for message in agent.history] == [
+        ("human", "My name is Ada."),
+        ("ai", "Hello."),
+    ]

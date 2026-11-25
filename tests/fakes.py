@@ -20,8 +20,8 @@ class RecordingChatModel(GenericFakeChatModel):
     received: list[list[BaseMessage]] = Field(default_factory=list)
     """The messages of each call, in call order."""
 
-    failure: Exception | None = None
-    """When set, every call raises it instead of replying, like an API error."""
+    failure: BaseException | None = None
+    """When set, every call raises it instead of replying: an API error, Ctrl+C."""
 
     @override
     def _generate(
