@@ -29,7 +29,7 @@ class Agent:
         """
         self._model = model
         self._system_prompt = system_prompt
-        self._config: RunnableConfig = {"configurable": {"thread_id": str(uuid4())}}
+        self.reset()
 
         graph_builder = StateGraph(MessagesState)
         graph_builder.add_node("call_model", self._call_model)
@@ -84,3 +84,11 @@ class Agent:
         snapshot = self._graph.get_state(self._config)
 
         return list(snapshot.values.get("messages", []))
+
+    def reset(self) -> None:
+        """Start a new conversation.
+
+        The next turns use a new thread id. The previous conversation is not
+        deleted: it stays in the checkpointer, but the agent no longer reads it.
+        """
+        self._config: RunnableConfig = {"configurable": {"thread_id": str(uuid4())}}

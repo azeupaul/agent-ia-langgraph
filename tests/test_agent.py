@@ -56,3 +56,17 @@ def test_history_lists_the_conversation_without_the_system_prompt() -> None:
         ("human", "What is my name?"),
         ("ai", "Ada."),
     ]
+
+
+def test_reset_starts_a_new_conversation() -> None:
+    model = RecordingChatModel(messages=iter(["Hello.", "I don't know."]))
+    agent = Agent(model)
+    agent.chat("My name is Ada.")
+
+    agent.reset()
+
+    assert agent.history == []
+    agent.chat("What is my name?")
+    assert [(message.type, message.text) for message in model.received[-1]] == [
+        ("human", "What is my name?"),
+    ]
