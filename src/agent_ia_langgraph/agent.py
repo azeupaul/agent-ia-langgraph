@@ -37,6 +37,7 @@ class Agent:
         *,
         tools: Sequence[BaseTool] = (),
         system_prompt: str | None = None,
+        max_iterations: int = 10,
     ) -> None:
         """Create an agent with an empty conversation.
 
@@ -47,11 +48,16 @@ class Agent:
                 answers with text. With no tools, the model only answers.
             system_prompt: Instructions sent before the conversation on every model
                 call. They are not stored in the conversation. None sends none.
+            max_iterations: The most model calls in one turn. A turn that needs
+                more raises GraphRecursionError and is cancelled, so the
+                conversation is left as it was. It guards against a model that
+                keeps asking for tools.
         """
         self._model: Runnable[LanguageModelInput, BaseMessage] = (
             model.bind_tools(tools) if tools else model
         )
         self._system_prompt = system_prompt
+        self._max_iterations = max_iterations
         self.reset()
 
         graph_builder = StateGraph(MessagesState)
@@ -131,7 +137,12 @@ class Agent:
         The next turns use a new thread id. The previous conversation is not
         deleted: it stays in the checkpointer, but the agent no longer reads it.
         """
-        self._config: RunnableConfig = {"configurable": {"thread_id": str(uuid4())}}
+        self._config: RunnableConfig = {
+            "configurable": {"thread_id": str(uuid4())},
+            # LangGraph counts graph steps, not model calls: each model call
+            # takes two steps, its own and the tool step that follows.
+            "recursion_limit": 2 * self._max_iterations,
+        }
 
     def _cancel(self, before: set[str | None]) -> None:
         """Remove every message a failed turn added to the conversation.

@@ -1,6 +1,7 @@
 import pytest
 from langchain_core.messages import AIMessage, ToolCall
 from langchain_core.tools import tool
+from langgraph.errors import GraphRecursionError
 
 from agent_ia_langgraph.agent import Agent
 from tests.fakes import RecordingChatModel
@@ -76,3 +77,29 @@ def test_a_turn_failing_after_a_tool_call_leaves_none_of_its_messages() -> None:
         ("human", "Hi."),
         ("ai", "Hello."),
     ]
+
+
+def always_asks_for_weather() -> RecordingChatModel:
+    """A model that never answers: every reply asks for the tool again."""
+    replies = [ask_for_weather("Douala", f"call_{i}") for i in range(10)]
+    return RecordingChatModel(messages=iter(replies))
+
+
+def test_a_turn_stops_after_max_iterations_and_leaves_no_messages() -> None:
+    model = always_asks_for_weather()
+    agent = Agent(model, tools=[get_weather], max_iterations=2)
+
+    with pytest.raises(GraphRecursionError):
+        agent.chat("What is the weather in Douala?")
+
+    assert len(model.received) == 2
+    assert agent.history == []
+
+
+def test_a_turn_may_use_all_of_its_max_iterations() -> None:
+    model = RecordingChatModel(
+        messages=iter([ask_for_weather("Douala", "call_1"), "Sunny in Douala."])
+    )
+    agent = Agent(model, tools=[get_weather], max_iterations=2)
+
+    assert agent.chat("What is the weather in Douala?") == "Sunny in Douala."
