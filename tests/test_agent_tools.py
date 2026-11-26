@@ -8,6 +8,8 @@ from tests.fakes import RecordingChatModel
 @tool
 def get_weather(city: str) -> str:
     """Get the current weather in a city."""
+    if city == "Atlantis":
+        raise ValueError(f"Unknown city: {city}")
     return f"Sunny in {city}"
 
 
@@ -40,3 +42,17 @@ def test_the_model_is_told_which_tools_it_can_use() -> None:
     Agent(model, tools=[get_weather])
 
     assert model.bound_tools == ["get_weather"]
+
+
+def test_a_tool_error_goes_back_to_the_model_so_it_can_recover() -> None:
+    model = RecordingChatModel(
+        messages=iter([ask_for_weather("Atlantis", "call_1"), "I don't know it."])
+    )
+    agent = Agent(model, tools=[get_weather])
+
+    reply = agent.chat("What is the weather in Atlantis?")
+
+    assert reply == "I don't know it."
+    tool_result = model.received[1][-1]
+    assert tool_result.type == "tool"
+    assert "Unknown city: Atlantis" in tool_result.text
