@@ -1,17 +1,20 @@
 """Conversational agent built as a LangGraph graph."""
 
+from collections.abc import Sequence
 from uuid import uuid4
 
-from langchain_core.language_models import BaseChatModel
+from langchain_core.language_models import BaseChatModel, LanguageModelInput
 from langchain_core.messages import (
     BaseMessage,
     HumanMessage,
     RemoveMessage,
     SystemMessage,
 )
-from langchain_core.runnables import RunnableConfig
+from langchain_core.runnables import Runnable, RunnableConfig
+from langchain_core.tools import BaseTool
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, START, MessagesState, StateGraph
+from langgraph.prebuilt import ToolNode, tools_condition
 
 DEFAULT_SYSTEM_PROMPT = (
     "You are an assistant that helps users solve problems.\n"
@@ -20,31 +23,47 @@ DEFAULT_SYSTEM_PROMPT = (
 
 
 class Agent:
-    """Chat agent that remembers the conversation.
+    """Chat agent that remembers the conversation and can use tools.
 
-    Each turn runs a graph with a single node that calls the model. A
-    checkpointer saves the messages under a thread id after each run, so the
-    next turn sends the whole conversation to the model again.
+    Each turn runs a graph: the model is called and, while it asks for
+    tools, they run and their results go back to it. A checkpointer saves
+    the messages under a thread id after each run, so the next turn sends
+    the whole conversation to the model again.
     """
 
     def __init__(
-        self, model: BaseChatModel, *, system_prompt: str | None = None
+        self,
+        model: BaseChatModel,
+        *,
+        tools: Sequence[BaseTool] = (),
+        system_prompt: str | None = None,
     ) -> None:
         """Create an agent with an empty conversation.
 
         Args:
             model: The chat model that answers, such as `ChatGoogleGenerativeAI`.
+            tools: Tools the model may ask to run, such as `calculate`. Each
+                requested tool runs and its result goes back to the model, until it
+                answers with text. With no tools, the model only answers.
             system_prompt: Instructions sent before the conversation on every model
                 call. They are not stored in the conversation. None sends none.
         """
-        self._model = model
+        self._model: Runnable[LanguageModelInput, BaseMessage] = (
+            model.bind_tools(tools) if tools else model
+        )
         self._system_prompt = system_prompt
         self.reset()
 
         graph_builder = StateGraph(MessagesState)
         graph_builder.add_node("call_model", self._call_model)
         graph_builder.add_edge(START, "call_model")
-        graph_builder.add_edge("call_model", END)
+        if tools:
+            graph_builder.add_node("tools", ToolNode(tools, handle_tool_errors=True))
+            graph_builder.add_conditional_edges("call_model", tools_condition)
+            graph_builder.add_edge("tools", "call_model")
+        else:
+            graph_builder.add_edge("call_model", END)
+
         self._graph = graph_builder.compile(checkpointer=InMemorySaver())
 
     def _call_model(self, state: MessagesState) -> dict[str, list[BaseMessage]]:
