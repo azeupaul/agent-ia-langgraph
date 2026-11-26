@@ -30,6 +30,9 @@ class RecordingChatModel(GenericFakeChatModel):
     failure: BaseException | None = None
     """When set, every call raises it instead of replying: an API error, Ctrl+C."""
 
+    bound_tools: list[str] = Field(default_factory=list)
+    """The names of the tools declared with `bind_tools`."""
+
     @override
     def _generate(
         self,
@@ -52,5 +55,7 @@ class RecordingChatModel(GenericFakeChatModel):
         **kwargs: Any,
     ) -> Runnable[LanguageModelInput, AIMessage]:
         # The replies are scripted, so the tools change nothing: the fake model
-        # only has to accept them, which GenericFakeChatModel does not.
+        # only accepts them, which GenericFakeChatModel does not, and records
+        # their names so a test can check what the real model would be told.
+        self.bound_tools = [tool.name for tool in tools if isinstance(tool, BaseTool)]
         return self

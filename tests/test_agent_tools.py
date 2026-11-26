@@ -32,3 +32,11 @@ def test_a_requested_tool_runs_and_its_result_goes_back_to_the_model() -> None:
         ("ai", ""),
         ("tool", "Sunny in Douala"),
     ]
+
+
+def test_the_model_is_told_which_tools_it_can_use() -> None:
+    model = RecordingChatModel(messages=iter([]))
+
+    Agent(model, tools=[get_weather])
+
+    assert model.bound_tools == ["get_weather"]
