@@ -3,7 +3,7 @@
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from langchain_core.tools import tool
+from langchain_core.tools import BaseTool, tool
 
 
 @tool(parse_docstring=True)
@@ -21,3 +21,7 @@ def get_current_time(timezone: str) -> str:
         The current date and time in ISO 8601 format, with the UTC offset.
     """
     return datetime.now(ZoneInfo(timezone)).isoformat()
+
+
+TOOLS: tuple[BaseTool, ...] = (get_current_time,)
+"""The tools the agent gives the model, in the order the model sees them."""
