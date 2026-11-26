@@ -28,7 +28,11 @@ class RecordingChatModel(GenericFakeChatModel):
     """The messages of each call, in call order."""
 
     failure: BaseException | None = None
-    """When set, every call raises it instead of replying: an API error, Ctrl+C."""
+    """When set, calls raise it instead of replying: an API error, Ctrl+C."""
+
+    fail_from_call: int = 1
+    """The first call, counted from 1, that raises `failure`. The earlier calls
+    reply as scripted, so a turn can fail after a tool call."""
 
     bound_tools: list[str] = Field(default_factory=list)
     """The names of the tools declared with `bind_tools`."""
@@ -42,7 +46,7 @@ class RecordingChatModel(GenericFakeChatModel):
         **kwargs: Any,
     ) -> ChatResult:
         self.received.append(list(messages))
-        if self.failure is not None:
+        if self.failure is not None and len(self.received) >= self.fail_from_call:
             raise self.failure
         return super()._generate(messages, stop, run_manager, **kwargs)
 

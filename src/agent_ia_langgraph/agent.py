@@ -101,13 +101,13 @@ class Agent:
                 Ctrl+C, is raised again once the turn is cancelled: the
                 conversation is left as it was.
         """
-        message_id = str(uuid4())
+        before = {message.id for message in self.history}
         try:
             result = self._graph.invoke(
-                {"messages": [HumanMessage(user_prompt, id=message_id)]}, self._config
+                {"messages": [HumanMessage(user_prompt)]}, self._config
             )
         except BaseException:
-            self._cancel(message_id)
+            self._cancel(before)
             raise
 
         reply: BaseMessage = result["messages"][-1]
@@ -133,15 +133,25 @@ class Agent:
         """
         self._config: RunnableConfig = {"configurable": {"thread_id": str(uuid4())}}
 
-    def _cancel(self, message_id: str) -> None:
-        """Remove the user message of a failed turn from the conversation.
+    def _cancel(self, before: set[str | None]) -> None:
+        """Remove every message a failed turn added to the conversation.
 
-        LangGraph saves the input in a checkpoint before running the node, so a
-        failed turn would leave the user message behind. The removal goes
-        through the `add_messages` reducer. Nothing is removed if the message
-        was never saved, since removing an unknown id raises an error.
+        LangGraph saves each step in a checkpoint, so a failed turn leaves its
+        messages behind: the user message, and any tool requests and results.
+        The messages to remove are those whose ids were not there before the
+        turn, so only messages that exist are removed. The removal goes through
+        the `add_messages` reducer.
+
+        Args:
+            before: The ids of the messages before the turn.
         """
-        if any(message_id == message.id for message in self.history):
+        added = {
+            message.id
+            for message in self.history
+            if message.id is not None and message.id not in before
+        }
+        if added:
             self._graph.update_state(
-                self._config, {"messages": [RemoveMessage(id=message_id)]}
+                self._config,
+                {"messages": [RemoveMessage(id=message_id) for message_id in added]},
             )

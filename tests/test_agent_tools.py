@@ -1,3 +1,4 @@
+import pytest
 from langchain_core.messages import AIMessage, ToolCall
 from langchain_core.tools import tool
 
@@ -56,3 +57,22 @@ def test_a_tool_error_goes_back_to_the_model_so_it_can_recover() -> None:
     tool_result = model.received[1][-1]
     assert tool_result.type == "tool"
     assert "Unknown city: Atlantis" in tool_result.text
+
+
+def test_a_turn_failing_after_a_tool_call_leaves_none_of_its_messages() -> None:
+    model = RecordingChatModel(
+        messages=iter(["Hello.", ask_for_weather("Douala", "call_1")]),
+        failure=RuntimeError("API unavailable"),
+        fail_from_call=3,
+    )
+    agent = Agent(model, tools=[get_weather])
+    agent.chat("Hi.")
+
+    # Call 2 asks for the tool, the tool runs, then call 3 fails.
+    with pytest.raises(RuntimeError, match="API unavailable"):
+        agent.chat("What is the weather in Douala?")
+
+    assert [(message.type, message.text) for message in agent.history] == [
+        ("human", "Hi."),
+        ("ai", "Hello."),
+    ]
