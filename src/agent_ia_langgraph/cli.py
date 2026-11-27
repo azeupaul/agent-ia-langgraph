@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 from agent_ia_langgraph.agent import DEFAULT_SYSTEM_PROMPT, Agent
+from agent_ia_langgraph.tools import TOOLS
 
 EXIT_COMMANDS = {"/quit", "/exit"}
 DEFAULT_MODEL = "gemini-3.5-flash-lite"
@@ -123,5 +124,5 @@ def main() -> None:
     except ValueError as error:
         raise SystemExit(f"[config error] {error}") from error
 
-    agent = Agent(model, system_prompt=DEFAULT_SYSTEM_PROMPT)
+    agent = Agent(model, tools=TOOLS, system_prompt=DEFAULT_SYSTEM_PROMPT)
     ChatCli(agent).run()
