@@ -6,7 +6,7 @@ The goal is not only to use LangGraph, but to see, for each mechanism, what the 
 
 ## Status
 
-Step 1 is done: a terminal chat with Gemini that remembers the conversation, built as a graph with a single node. The agent has no tools yet: they come at step 2.
+Step 2 is done: a terminal chat with Gemini that remembers the conversation and uses two tools, `get_current_time` and `calculate`, built as a graph that loops between the model and the tools. `write_note`, which needs the user's confirmation, comes at step 3.
 
 ## Without a framework → LangGraph
 
@@ -19,39 +19,66 @@ One row per mechanism, completed at each step.
 | Conversation memory | `Agent._history`, a list the agent appends to and sends on every call | The graph state (`MessagesState`), saved by a checkpointer (`InMemorySaver`) under a `thread_id`. `chat` sends only the new message: the graph reloads the rest |
 | Adding a message | `self._history.append(...)` | The node returns `{"messages": [reply]}`, and the `add_messages` reducer appends it to the state |
 | System prompt | `system_instruction` in the request config | A `SystemMessage` put first in the messages, in the node, and never stored. `langchain-google-genai` turns it into `system_instruction` |
-| A failed turn | Nothing to undo: a turn is committed only once it completes | The input is checkpointed **before** the node runs, so a failed turn leaves the user message behind. `chat` removes it with a `RemoveMessage`, through the same reducer |
+| A failed turn | Nothing to undo: a turn is committed only once it completes | Each step is checkpointed as it ends, so a failed turn leaves its messages behind: the user message, and any tool request and result before the failure. `chat` removes them with `RemoveMessage`, through the same reducer |
 | Reading the history | A list of `Content` with parts. Displaying it joined the streamed text pieces and skipped the parts that only carried a thought signature | `graph.get_state(config).values["messages"]`. `message.text` joins the text blocks, so the display needs no special handling |
 | Reset | `self._history = []`: the conversation is deleted | A new `thread_id`: the previous conversation stays in the checkpointer, unread |
 | Retries | None: an API error fails the turn at once | `ChatGoogleGenerativeAI` makes up to 6 attempts by default (`max_retries=6`, where 1 means no retry) before raising |
-| Test double | A fake Gemini client that replays scripted streams | `RecordingChatModel`, a `GenericFakeChatModel` that also records the messages of each call |
+| Test double | A fake Gemini client that replays scripted streams | `RecordingChatModel`, a `GenericFakeChatModel` that also records the messages of each call, and accepts tools |
+| Declaring a tool | A home-made `@tool` decorator, with its own docstring parser and JSON schema builder | `@tool(parse_docstring=True)` from `langchain-core`: the text before `Args:` describes the tool, each `Args:` line describes a parameter. Without `parse_docstring`, the parameters get no description at all, and a test checks that none is missing |
+| Telling the model about the tools | `ToolRegistry.declarations`, a list of `FunctionDeclaration` in the request config | `model.bind_tools(tools)`, which returns a new runnable that sends them with every call |
+| Running a requested tool | `Agent._run_tool`, which finds the tool in the `ToolRegistry` and calls it | `ToolNode`, a ready-made node that runs the calls of the last `AIMessage` and returns one `ToolMessage` per call |
+| Several calls in one reply | A `for` loop: one call after the other | `ToolNode` runs them in parallel, in a single graph step |
+| The tool loop | A `for` loop over `max_iterations`, which stops when the reply has no function call | Two edges: `tools_condition` goes to `tools` if the reply asks for tools, to `END` otherwise, and `tools` always goes back to `call_model` |
+| A failing tool | `_run_tool` never raises: the error goes back to the model as `{"error": ...}` | `ToolNode(..., handle_tool_errors=True)`: the error goes back as a `ToolMessage` with `status="error"`. **By default, `ToolNode` only reports invalid arguments, and raises any other error**, which would end the turn |
+| Too many model calls | `max_iterations` counts the model calls, then a `RuntimeError` | `recursion_limit` counts graph steps, not model calls: each model call takes two steps (model, then tools), so `recursion_limit = 2 * max_iterations`. Past it, LangGraph raises `GraphRecursionError`, and `chat` cancels the turn. The default limit is high enough to let a looping model run for a long while |
+| Thought signatures | The model's parts are kept exactly as they are, so that Gemini 3 finds its signatures on the next call | Nothing to do: `langchain-google-genai` keeps them in the `AIMessage` and sends them back |
 
 The framework does not replace the call to Gemini: it wraps it. `langgraph` builds on `langchain-core`, which provides the shared building blocks (messages, tools, chat models), while ready-made components such as `ToolNode` live in a separate package, `langgraph-prebuilt`.
 
 ## How it works
 
 ```
-graph.invoke({"messages": [HumanMessage("Hi")]}, {"configurable": {"thread_id": ...}})
-   │  the checkpointer reloads the thread, add_messages appends "Hi"
+graph.invoke({"messages": [HumanMessage("What time is it in Tokyo?")]}, config)
+   │  the checkpointer reloads the thread, add_messages appends the question
    ▼
-START ──► call_model ──► END
-             │ sends [SystemMessage, *messages] to the model
-             │ returns {"messages": [AIMessage("Hello!")]}
-             ▼
-          add_messages appends the reply, the checkpointer saves the state
+START ──► call_model ──tools_condition──► END        (the reply asks for no tool)
+             ▲              │
+             │              ▼                        (the reply asks for tools)
+             └────────── tools
 ```
+
+1. `call_model` sends `[SystemMessage, *messages]` to the model, which replies with an `AIMessage` whose `tool_calls` ask for `get_current_time(timezone="Asia/Tokyo")`.
+2. `tools_condition` sees the `tool_calls` and goes to `tools`. `ToolNode` runs the tool and returns a `ToolMessage` with the result, linked to the call by its id.
+3. Back to `call_model`: the model now has the result, and replies with text. `tools_condition` goes to `END`.
+
+Each step is saved by the checkpointer, and `add_messages` appends each new message to the state.
 
 | Piece | Role |
 |---|---|
 | State | `MessagesState`: a dictionary with a `messages` list |
-| Node | `call_model`, a function that receives the state and returns an **update**, not the whole state |
+| Nodes | `call_model`, a function that receives the state and returns an **update**, not the whole state, and `tools`, a ready-made `ToolNode` |
 | Reducer | `add_messages`: merges the update into the state. It appends new messages and removes those named by a `RemoveMessage` |
-| Edges | `START → call_model → END`: a single model call per turn, for now |
+| Edges | `START → call_model`, a conditional edge `call_model → tools or END` (`tools_condition`), and `tools → call_model` |
 | Checkpointer | `InMemorySaver`: saves the state after each step, per `thread_id` |
+
+Without tools, the agent builds a simpler graph, `START → call_model → END`, and the model is not told about any tool.
 
 | File | Role |
 |---|---|
 | `agent.py` | `Agent`: builds the graph, and exposes `chat`, `history` and `reset` |
-| `cli.py` | `ChatCli`, the terminal chat loop, and `main`, which assembles the model, the agent and the chat |
+| `tools.py` | The tools, and `TOOLS`, the tuple the chat gives the agent |
+| `cli.py` | `ChatCli`, the terminal chat loop, and `main`, which assembles the model, the tools, the agent and the chat |
+
+### Tools
+
+| Tool | What it does |
+|---|---|
+| `get_current_time(timezone)` | The current date and time in an IANA timezone, in ISO 8601 |
+| `calculate(expression)` | Evaluates an arithmetic expression: numbers, `+ - * / // % **` and parentheses |
+
+Each tool is a function with `@tool(parse_docstring=True)`. Its docstring is written **for the model**: it says what the tool does, when to use it, and what each parameter expects.
+
+`calculate` never runs `eval`. It parses the expression into a syntax tree with `ast`, and evaluates only numbers and arithmetic operators. It also refuses results of more than 1000 digits, checked **before** computing a power (`9 ** 9 ** 9` would take minutes), and results that are infinite or complex. Its errors go back to the model, which can fix the expression.
 
 ### Gemini 3 replies
 
@@ -59,10 +86,10 @@ With Gemini 3, `AIMessage.content` is a list of content blocks such as `{"type":
 
 ### A failed turn
 
-If the model call fails, or the user presses `Ctrl+C` during a request, `chat` raises the error and leaves the conversation as it was before the turn:
+If a model call fails, the model calls too many tools in a row (`GraphRecursionError`), or the user presses `Ctrl+C` during a request, `chat` raises the error and leaves the conversation as it was before the turn:
 
-- The user message gets its id **before** the graph runs, so the agent knows exactly which message to remove. Removing the last message instead could remove a valid reply, if the error came before the input was saved.
-- The message is removed only if it was saved: removing an unknown id raises an error, which would hide the original one.
+- Before the turn, `chat` notes the ids of the messages already saved. After a failure, it removes every message whose id is not in that list: the user message, and any tool request and result saved before the failure. Removing only the last message would leave the others behind.
+- Only messages that were actually saved are removed: removing an unknown id raises an error, which would hide the original one.
 - `except BaseException` covers `KeyboardInterrupt`, which is not an `Exception`.
 
 LangGraph keeps the input on purpose: it can retry the unfinished node with `graph.invoke(None, config)`. A chat would rather cancel the turn and let the user type again; long tasks, such as plans, may prefer to resume.
@@ -117,7 +144,7 @@ Each step maps a mechanism written by hand in the framework-free project to its 
 
 - [x] 0. Setup: uv, `langgraph`, `langchain-google-genai`, quality checks
 - [x] 1. Minimal graph: message state, a model node, an in-memory checkpointer and a thread
-- [ ] 2. Tools: LangChain tools, a tool node and a conditional edge, recursion limit
+- [x] 2. Tools: LangChain tools, a tool node and a conditional edge, recursion limit
 - [ ] 3. Human in the loop: confirm `write_note` by interrupting the graph and resuming it
 - [ ] 4. Streaming and tracing
 - [ ] 5. Context management: trimming and summarizing messages
@@ -138,8 +165,7 @@ Some known limitations of the framework-free project were left on purpose, to be
 - `/reset` does not free memory: every previous conversation stays in the checkpointer until the chat ends.
 - With up to 6 attempts by default, a failing API can take a while before the error shows.
 - `langchain-google-genai` only turns the **first** `SystemMessage` into `system_instruction`: a system message placed later, with none before it, is silently dropped. The agent always puts it first, and a test checks it.
-- The removal of a failed turn's message checks that the message was saved first. No test covers the case where it was not, since it needs a checkpointer that fails.
-
+- `/history` shows a tool request as an empty `[ai]` line: it does not say which tool was asked for. Step 4 (tracing) will show it.
 ## License
 
 [MIT](LICENSE)
