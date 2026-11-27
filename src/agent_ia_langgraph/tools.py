@@ -18,6 +18,10 @@ class _Calculator:
     numbers and arithmetic operators are evaluated, anything else is rejected.
     """
 
+    _MAX_DIGITS: ClassVar[int] = 1000
+    """The most digits a result may have, so that a request cannot make the
+    agent compute for minutes."""
+
     _BINARY_OPERATORS: ClassVar[
         dict[type[ast.operator], Callable[[float, float], float]]
     ] = {
@@ -47,7 +51,8 @@ class _Calculator:
         Raises:
             SyntaxError: If the expression cannot be parsed.
             ValueError: If the expression contains anything but numbers and
-                arithmetic operators, or if its result is not a finite number.
+                arithmetic operators, or if its result is too large or not a
+                finite number.
         """
         tree = ast.parse(expression, mode="eval")
 
@@ -55,6 +60,9 @@ class _Calculator:
 
         if isinstance(result, float) and not math.isfinite(result):
             raise ValueError("Result is not a finite number")
+
+        if isinstance(result, int) and abs(result) >= 10**self._MAX_DIGITS:
+            raise ValueError("Result too large")
 
         return result
 
@@ -75,10 +83,31 @@ class _Calculator:
             left = self._evaluate(node.left)
             right = self._evaluate(node.right)
 
+            if isinstance(node.op, ast.Pow):
+                self._check_power(left, right)
+
             binary_op = self._BINARY_OPERATORS[type(node.op)]
             return binary_op(left, right)
 
         raise ValueError(f"Unsupported expression: {ast.unparse(node)!r}")
+
+    def _check_power(self, base: float, exponent: float) -> None:
+        """Check that a power is small enough to compute, before computing it.
+
+        Args:
+            base: The base of the power.
+            exponent: The exponent of the power.
+
+        Raises:
+            ValueError: If the result would have more than ``_MAX_DIGITS``
+                digits.
+        """
+        # The result has about |exponent| * |log10(|base|)| digits. Comparing
+        # |exponent| to _MAX_DIGITS / |log10(|base|)| avoids converting a huge
+        # integer exponent to float, which would overflow.
+        digits_per_unit = abs(math.log10(abs(base))) if base != 0 else 0.0
+        if digits_per_unit and abs(exponent) > self._MAX_DIGITS / digits_per_unit:
+            raise ValueError("Result too large")
 
 
 _CALCULATOR = _Calculator()

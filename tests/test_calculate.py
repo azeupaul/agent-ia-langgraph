@@ -30,3 +30,20 @@ def test_calculate_evaluates_valid_expressions(
     expression: str, expected: float
 ) -> None:
     assert calculate.invoke({"expression": expression}) == expected
+
+
+@pytest.mark.parametrize(
+    "expression",
+    [
+        # The result itself is too large
+        "10 ** 1000",
+        # A power too large to compute at all: 9 ** 387420489
+        "9 ** 9 ** 9",
+        # Each power is allowed, but not their product
+        "10 ** 600 * 10 ** 600",
+    ],
+)
+def test_calculate_rejects_results_too_large(expression: str) -> None:
+    # Without a limit, the model could make the agent compute for minutes.
+    with pytest.raises(ValueError, match="Result too large"):
+        calculate.invoke({"expression": expression})
