@@ -32,6 +32,27 @@ def test_calculate_evaluates_valid_expressions(
     assert calculate.invoke({"expression": expression}) == expected
 
 
+@pytest.mark.parametrize(
+    "expression",
+    [
+        "int(3.7)",  # a function call
+        '__import__("os")',  # what eval would run
+        "x + 1",  # a variable
+        "True + 1",  # a bool, which Python treats as the int 1
+        '"a" * 3',  # a string
+        "2 < 3",  # a comparison
+        "[1, 2]",  # a list
+        "~5",  # a unary operator that is not arithmetic
+        "1 << 3",  # a binary operator that is not arithmetic
+    ],
+)
+def test_calculate_rejects_anything_but_arithmetic_on_numbers(
+    expression: str,
+) -> None:
+    with pytest.raises(ValueError, match="Unsupported expression"):
+        calculate.invoke({"expression": expression})
+
+
 def test_calculate_accepts_the_largest_allowed_integer() -> None:
     # 10 ** 999 has 1000 digits, the most allowed.
     result = calculate.invoke({"expression": "10 ** 999"})
