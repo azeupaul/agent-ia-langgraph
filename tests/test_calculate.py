@@ -21,6 +21,7 @@ from agent_ia_langgraph.tools import calculate
         ("16 ** 0.5", 4.0),
         ("2 ** -1", 0.5),
         ("(-2) ** 3", -8),
+        ("(-8) ** 2.0", 64.0),  # a negative base, but a whole exponent
         # Floats
         ("0.1 + 0.2", pytest.approx(0.3)),
         ("(24 * 60 - 935) / 60", pytest.approx(8.4167, abs=1e-4)),
@@ -51,6 +52,18 @@ def test_calculate_rejects_anything_but_arithmetic_on_numbers(
 ) -> None:
     with pytest.raises(ValueError, match="Unsupported expression"):
         calculate.invoke({"expression": expression})
+
+
+def test_calculate_rejects_a_result_that_is_not_a_finite_number() -> None:
+    # Float overflow gives inf, which is not a usable answer.
+    with pytest.raises(ValueError, match="not a finite number"):
+        calculate.invoke({"expression": "1e308 * 10"})
+
+
+def test_calculate_rejects_a_complex_result() -> None:
+    # Python returns a complex number here, which is not a float.
+    with pytest.raises(ValueError, match="Negative base with a fractional exponent"):
+        calculate.invoke({"expression": "(-8) ** 0.5"})
 
 
 def test_calculate_accepts_the_largest_allowed_integer() -> None:

@@ -92,16 +92,20 @@ class _Calculator:
         raise ValueError(f"Unsupported expression: {ast.unparse(node)!r}")
 
     def _check_power(self, base: float, exponent: float) -> None:
-        """Check that a power is small enough to compute, before computing it.
+        """Check that a power can be computed safely, before computing it.
 
         Args:
             base: The base of the power.
             exponent: The exponent of the power.
 
         Raises:
-            ValueError: If the result would have more than ``_MAX_DIGITS``
-                digits.
+            ValueError: If the base is negative and the exponent fractional,
+                since the result would be a complex number, or if the result
+                would have more than ``_MAX_DIGITS`` digits.
         """
+        if base < 0 and not (isinstance(exponent, int) or exponent.is_integer()):
+            raise ValueError("Negative base with a fractional exponent")
+
         # The result has about |exponent| * |log10(|base|)| digits. Comparing
         # |exponent| to _MAX_DIGITS / |log10(|base|)| avoids converting a huge
         # integer exponent to float, which would overflow.
