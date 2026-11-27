@@ -66,6 +66,22 @@ def test_calculate_rejects_a_complex_result() -> None:
         calculate.invoke({"expression": "(-8) ** 0.5"})
 
 
+@pytest.mark.parametrize(
+    ("expression", "error"),
+    [
+        ("2 +", SyntaxError),
+        ("1 / 0", ZeroDivisionError),
+        ("0 ** -1", ZeroDivisionError),
+    ],
+)
+def test_calculate_lets_other_errors_propagate(
+    expression: str, error: type[Exception]
+) -> None:
+    # The tool node catches them and sends them back to the model.
+    with pytest.raises(error):
+        calculate.invoke({"expression": expression})
+
+
 def test_calculate_accepts_the_largest_allowed_integer() -> None:
     # 10 ** 999 has 1000 digits, the most allowed.
     result = calculate.invoke({"expression": "10 ** 999"})
