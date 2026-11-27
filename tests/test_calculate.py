@@ -32,6 +32,13 @@ def test_calculate_evaluates_valid_expressions(
     assert calculate.invoke({"expression": expression}) == expected
 
 
+def test_calculate_accepts_the_largest_allowed_integer() -> None:
+    # 10 ** 999 has 1000 digits, the most allowed.
+    result = calculate.invoke({"expression": "10 ** 999"})
+
+    assert result == 10**999
+
+
 @pytest.mark.parametrize(
     "expression",
     [
